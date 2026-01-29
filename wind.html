@@ -41,6 +41,7 @@
   </style>
 </head>
 <body>
+<div id="statusBanner" style="padding:10px;background:#222;color:#fff;font-weight:bold">Loading National Weather Service wind forecast…</div>
 
 <div id="map"></div>
 <div id="controls">
@@ -104,7 +105,33 @@ const dirMap = {
 // Cache forecasts to avoid repeated network calls
 const forecastCache = {};
 
+// --- NWS-compliant fetch with required User-Agent ---
+const forecastCache = {};
+
+async function nwsFetch(url) {
+  const resp = await fetch(url, {
+    headers: {
+      "User-Agent": "Partner Wind Briefing (contact: wx3hweather@gmail.com)",
+      "Accept": "application/geo+json"
+    }
+  });
+  if (!resp.ok) throw new Error(`NWS request failed: ${resp.status}`);
+  return resp;
+}
+
 async function fetchForecast(lat, lon) {
+  const key = `${lat},${lon}`;
+  if (forecastCache[key]) return forecastCache[key];
+
+  const pointResp = await nwsFetch(`https://api.weather.gov/points/${lat},${lon}`);
+  const pointData = await pointResp.json();
+
+  const forecastResp = await nwsFetch(pointData.properties.forecastHourly);
+  const forecastData = await forecastResp.json();
+
+  forecastCache[key] = forecastData.properties.periods;
+  return forecastCache[key];
+}(lat, lon) {
   const key = `${lat},${lon}`;
   if (forecastCache[key]) return forecastCache[key];
 
@@ -205,6 +232,20 @@ function buildLegend() {
 }
 
 function togglePlay() {
+  // Briefing-safe: autoplay intentionally conservative
+  const slider = document.getElementById('timeSlider');
+  if (playInterval) {
+    clearInterval(playInterval);
+    playInterval = null;
+    playBtn.textContent = '▶ Play';
+  } else {
+    playBtn.textContent = '⏸ Pause';
+    playInterval = setInterval(() => {
+      slider.value = Math.min(parseInt(slider.value) + 1, forecastPeriods.length - 1);
+      updateMap(slider.value);
+    }, 2500);
+  }
+}() {
   const slider = document.getElementById('timeSlider');
   if (playInterval) {
     clearInterval(playInterval);
@@ -237,6 +278,8 @@ function togglePlay() {
 
 // ---------------- INIT ----------------
 (async function init() {
+  const banner = document.getElementById('statusBanner');
+  try {
   // Use Raleigh as reference for timeline
   forecastPeriods = await fetchForecast(35.7796, -78.6382);
 
@@ -260,6 +303,14 @@ document.getElementById('playBtn').addEventListener('click', togglePlay);
 buildLegend();
 
   updateMap(0);
+  banner.textContent = 'NWS wind forecast loaded – briefing ready';
+  banner.style.background = '#145a32';
+  } catch (err) {
+    console.error(err);
+    banner.textContent = 'ERROR: Unable to load National Weather Service data';
+    banner.style.background = '#7b241c';
+    banner.innerHTML += '<br>Please verify internet access or NWS availability.';
+  }
 })();
 </script>
 
